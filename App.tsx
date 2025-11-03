@@ -18,6 +18,8 @@ const App: React.FC = () => {
   const [isExamModalOpen, setIsExamModalOpen] = useState(false);
   const [isSpecialistModalOpen, setIsSpecialistModalOpen] = useState(false);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [isIconPickerModalOpen, setIsIconPickerModalOpen] = useState(false);
+
 
   const [editingVisit, setEditingVisit] = useState<Visit | null>(null);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
@@ -331,7 +333,19 @@ const App: React.FC = () => {
       </Modal>
 
       <Modal isOpen={isSpecialistModalOpen} onClose={() => setIsSpecialistModalOpen(false)} title={editingSpecialist ? "Modifica Specialista" : "Aggiungi Specialista"}>
-          <SpecialistForm form={specialistFormState} setForm={setSpecialistFormState} onSave={saveSpecialist} />
+         <SpecialistForm 
+            form={specialistFormState} 
+            setForm={setSpecialistFormState} 
+            onSave={saveSpecialist} 
+            openIconPicker={() => setIsIconPickerModalOpen(true)}
+        />
+      </Modal>
+      
+      <Modal isOpen={isIconPickerModalOpen} onClose={() => setIsIconPickerModalOpen(false)} title="Scegli un'icona">
+          <IconPicker onSelect={(icon) => {
+              setSpecialistFormState(prev => ({ ...prev, icon }));
+              setIsIconPickerModalOpen(false);
+          }} />
       </Modal>
 
       <Modal isOpen={isPdfModalOpen} onClose={() => setIsPdfModalOpen(false)} title="Esporta Report PDF">
@@ -377,9 +391,10 @@ const StatCard: React.FC<{ title: string; value: string | number; color: string 
   </div>
 );
 
-const CostCalculatorCard: React.FC<{ visits: Visit[], exams: Exam[] }> = ({ visits, exams }) => {
+const CostCalculatorCard: React.FC<{ visits: Visit[], exams: Exam[], specialists: Specialist[] }> = ({ visits, exams, specialists }) => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedSpecialist, setSelectedSpecialist] = useState('');
   const [periodCost, setPeriodCost] = useState<number | null>(null);
 
   const handleCalculateCost = () => {
@@ -399,14 +414,19 @@ const CostCalculatorCard: React.FC<{ visits: Visit[], exams: Exam[] }> = ({ visi
     const costOfVisits = visits
       .filter(v => {
         const visitDate = new Date(v.date);
-        return visitDate >= start && visitDate <= end;
+        const dateMatch = visitDate >= start && visitDate <= end;
+        const specialistMatch = !selectedSpecialist || v.specialistId === Number(selectedSpecialist);
+        return dateMatch && specialistMatch;
       })
       .reduce((sum, v) => sum + v.cost, 0);
 
     const costOfExams = exams
       .filter(e => {
         const examDate = new Date(e.date);
-        return examDate >= start && examDate <= end;
+        const dateMatch = examDate >= start && examDate <= end;
+        // Exams can have no specialist, so we need to handle that case
+        const specialistMatch = !selectedSpecialist || (e.specialistId !== null && e.specialistId === Number(selectedSpecialist));
+        return dateMatch && specialistMatch;
       })
       .reduce((sum, e) => sum + e.cost, 0);
       
@@ -425,6 +445,13 @@ const CostCalculatorCard: React.FC<{ visits: Visit[], exams: Exam[] }> = ({ visi
                 <label className="block text-sm font-medium text-gray-700 mb-1">Data Fine</label>
                 <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary" />
             </div>
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Specialista (Opzionale)</label>
+          <select value={selectedSpecialist} onChange={e => setSelectedSpecialist(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary">
+              <option value="">Tutti gli Specialisti</option>
+              {specialists.map(s => <option key={s.id} value={s.id}>{s.icon} {s.name}</option>)}
+          </select>
         </div>
         <button onClick={handleCalculateCost} className="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold shadow hover:bg-indigo-700 transition-all">
             Calcola Totale
@@ -518,7 +545,7 @@ const Dashboard: React.FC<{ visits: Visit[], exams: Exam[], totalCost: number, s
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <UpcomingCheckupsCard visits={visits} specialists={specialists} />
-                <CostCalculatorCard visits={visits} exams={exams} />
+                <CostCalculatorCard visits={visits} exams={exams} specialists={specialists} />
             </div>
 
             <div>
@@ -596,6 +623,7 @@ const ItemList: React.FC<ItemListProps> = ({ items, type, onEdit, onCopy, onDele
     const [filterSpecialist, setFilterSpecialist] = useState('');
     const [filterStartDate, setFilterStartDate] = useState('');
     const [filterEndDate, setFilterEndDate] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
 
     const setDatePreset = (months: number) => {
         const endDate = new Date();
@@ -612,20 +640,51 @@ const ItemList: React.FC<ItemListProps> = ({ items, type, onEdit, onCopy, onDele
     };
     
     const filteredItems = useMemo(() => {
-        if (type !== 'visit') return items;
-        return items.filter(item => {
-            const visit = item as Visit;
-            const specialistMatch = !filterSpecialist || visit.specialistId === Number(filterSpecialist);
-            const startDateMatch = !filterStartDate || new Date(item.date) >= new Date(filterStartDate);
-            // Add 1 day to endDate to make it inclusive
-            const endDateMatch = !filterEndDate || new Date(item.date) < new Date(new Date(filterEndDate).setDate(new Date(filterEndDate).getDate() + 1));
-            return specialistMatch && startDateMatch && endDateMatch;
+      let filtered = items;
+
+      if (type === 'visit') {
+        filtered = filtered.filter(item => {
+          const visit = item as Visit;
+          const specialistMatch = !filterSpecialist || visit.specialistId === Number(filterSpecialist);
+          const startDateMatch = !filterStartDate || new Date(item.date) >= new Date(filterStartDate);
+          const endDateMatch = !filterEndDate || new Date(item.date) < new Date(new Date(filterEndDate).setDate(new Date(filterEndDate).getDate() + 1));
+          return specialistMatch && startDateMatch && endDateMatch;
         });
-    }, [items, type, filterSpecialist, filterStartDate, filterEndDate]);
+      }
+
+      if (searchQuery.trim() !== '') {
+        const lowercasedQuery = searchQuery.toLowerCase().trim();
+        filtered = filtered.filter(item => {
+          if (type === 'visit') {
+            const visit = item as Visit;
+            return visit.notes.toLowerCase().includes(lowercasedQuery);
+          } else { // exam
+            const exam = item as Exam;
+            return (
+              exam.name.toLowerCase().includes(lowercasedQuery) ||
+              exam.results.toLowerCase().includes(lowercasedQuery) ||
+              exam.notes.toLowerCase().includes(lowercasedQuery)
+            );
+          }
+        });
+      }
+
+      return filtered;
+    }, [items, type, filterSpecialist, filterStartDate, filterEndDate, searchQuery]);
 
 
     return(
         <div className="space-y-4">
+            <div className="mb-4">
+                <input
+                    type="text"
+                    placeholder={type === 'visit' ? "Cerca nelle note..." : "Cerca per nome, risultati o note..."}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
+                />
+            </div>
+
             {type === 'visit' && (
                 <VisitFilters
                     specialists={specialists}
@@ -646,7 +705,7 @@ const ItemList: React.FC<ItemListProps> = ({ items, type, onEdit, onCopy, onDele
             ) : (
                 <div className="text-center py-10">
                     <p className="text-gray-500">Nessun {type === 'visit' ? 'visita' : 'esame'} trovato.</p>
-                    <p className="text-sm text-gray-400 mt-1">{type === 'visit' ? 'Prova a modificare i filtri o aggiungine una nuova!' : 'Aggiungine uno per iniziare!'}</p>
+                    <p className="text-sm text-gray-400 mt-1">{searchQuery || filterSpecialist || filterStartDate ? 'Prova a modificare i filtri o la ricerca.' : `Aggiungi ${type === 'visit' ? 'una nuova visita' : 'un nuovo esame'} per iniziare.`}</p>
                 </div>
             )}
         </div>
@@ -746,46 +805,47 @@ const ExamForm: React.FC<{form: Omit<Exam, 'id'>, setForm: React.Dispatch<React.
     </div>
 );
 
-const MEDICAL_ICONS = ['👁️','🦷','🦴','❤️','🩺','♀️','♂️','👨‍⚕️','👩‍⚕️','🧠','👃','👂','👶','🏃','🩸','💊','🚑','🔬','🧬','👶','🥼','🏥'];
+const MEDICAL_ICONS = ['👁️','🦷','🦴','❤️','🩺','♀️','♂️','👨‍⚕️','👩‍⚕️','🧠','👃','👂','👶','🏃','🩸','💊','🚑','🔬','🧬','👶','🥼','🏥', ' pediatra', 'allergologo', 'anestesista', 'angiologo', 'audiologo', 'cardiologo', 'chiropratico', 'chirurgo', 'dermatologo', 'diabetologo', 'dietologo', 'ematologo', 'endocrinologo', 'epatologo', 'fisiatra', 'fisioterapista', 'gastroenterologo', 'genetista', 'geriatra', 'ginecologo', 'immunologo', 'infettivologo', 'logopedista', 'medico', 'nefrologo', 'neurochirurgo', 'neurologo', 'neuropsichiatra', 'oculista', 'odontoiatra', 'omeopata', 'oncologo', 'ortopedico', 'osteopata', 'otorinolaringoiatra', 'pneumologo', 'podologo', 'proctologo', 'psichiatra', 'psicologo', 'radiologo', 'reumatologo', 'senologo', 'stomatologo', 'urologo', 'veterinario'];
 
-const SpecialistForm: React.FC<{form: Omit<Specialist, 'id'>, setForm: React.Dispatch<React.SetStateAction<Omit<Specialist, 'id'>>>, onSave: () => void}> = ({ form, setForm, onSave }) => {
-    const [isPickerOpen, setIsPickerOpen] = useState(false);
-    
+const IconPicker: React.FC<{onSelect: (icon: string) => void}> = ({ onSelect }) => {
+    return (
+        <div className="grid grid-cols-6 sm:grid-cols-8 gap-2 max-h-64 overflow-y-auto p-2 bg-gray-50 rounded-lg">
+            {MEDICAL_ICONS.map(icon => (
+                <button
+                    key={icon}
+                    type="button"
+                    onClick={() => onSelect(icon)}
+                    className="text-3xl p-2 rounded-lg hover:bg-gray-200 transition-colors aspect-square flex items-center justify-center"
+                    aria-label={`Icona ${icon}`}
+                >
+                    {icon}
+                </button>
+            ))}
+        </div>
+    );
+};
+
+
+const SpecialistForm: React.FC<{
+    form: Omit<Specialist, 'id'>, 
+    setForm: React.Dispatch<React.SetStateAction<Omit<Specialist, 'id'>>>, 
+    onSave: () => void,
+    openIconPicker: () => void,
+}> = ({ form, setForm, onSave, openIconPicker }) => {
     return (
         <div className="space-y-4">
             <input type="text" placeholder="Nome Specialista *" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary" />
             
             <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Icona *</label>
-                <div className="relative">
-                    <button 
-                        type="button"
-                        onClick={() => setIsPickerOpen(!isPickerOpen)}
-                        className="w-full text-left border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary flex items-center justify-between"
-                    >
-                        <span className="text-2xl">{form.icon || 'Scegli...'}</span>
-                        <svg className={`h-5 w-5 text-gray-400 transform transition-transform ${isPickerOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                        </svg>
-                    </button>
-                    {isPickerOpen && (
-                        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-2 grid grid-cols-7 gap-1 max-h-48 overflow-y-auto">
-                            {MEDICAL_ICONS.map(icon => (
-                                <button
-                                    key={icon}
-                                    type="button"
-                                    onClick={() => {
-                                        setForm({ ...form, icon });
-                                        setIsPickerOpen(false);
-                                    }}
-                                    className="text-2xl p-2 rounded-lg hover:bg-gray-100 transition-colors aspect-square flex items-center justify-center"
-                                >
-                                    {icon}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </div>
+                 <button 
+                    type="button"
+                    onClick={openIconPicker}
+                    className="w-full text-left border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary flex items-center"
+                >
+                    <span className="text-2xl w-8">{form.icon}</span>
+                    <span className="text-gray-700">Clicca per scegliere un'icona</span>
+                </button>
             </div>
             
             <input type="number" placeholder="Intervallo controllo (mesi) *" value={form.interval || ''} onChange={e => setForm({...form, interval: Number(e.target.value)})} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary" />
