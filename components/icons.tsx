@@ -1,5 +1,5 @@
 // FIX: Export FileDown to resolve import error in App.tsx. Renamed imported FileDown to FileDownFromLucide to avoid naming conflicts.
-import { Plus, Edit2, Trash2, X, FileDown as FileDownFromLucide, Bot, Activity, FileText, Microscope, LayoutDashboard, Pencil, Copy, FileUp, Users, CalendarCheck } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, FileDown as FileDownFromLucide, Bot, Activity, FileText, Microscope, LayoutDashboard, Pencil, Copy, FileUp, Users, CalendarCheck, Filter } from 'lucide-react';
 
 export const PlusIcon = () => <Plus className="h-5 w-5" />;
 export const EditIcon = () => <Edit2 size={18} />;
@@ -16,4 +16,5 @@ export const CopyIcon = () => <Copy size={16} />;
 export const UploadIcon = () => <FileUp className="h-5 w-5" />;
 export const SpecialistsIcon = () => <Users className="mr-2 h-5 w-5" />;
 export const CalendarCheckIcon = () => <CalendarCheck className="h-6 w-6" />;
+export const FilterIcon = () => <Filter className="h-5 w-5 mr-2" />;
 export const FileDown = FileDownFromLucide;
