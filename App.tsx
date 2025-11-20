@@ -1,10 +1,11 @@
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Visit, Exam, Specialist, Tab } from './types';
 import { storageService } from './services/storageService';
 import { DEFAULT_SPECIALISTS } from './constants';
 import Modal from './components/Modal';
 import AISuggestions from './components/AISuggestions';
-import { PlusIcon, DownloadIcon, DashboardIcon, VisitsIcon, ExamsIcon, BotIcon, ActivityIcon, UploadIcon, PencilIcon, CopyIcon, TrashIcon, SpecialistsIcon, FileDown, CalendarCheckIcon, FilterIcon } from './components/icons';
+import { PlusIcon, DownloadIcon, DashboardIcon, VisitsIcon, ExamsIcon, BotIcon, ActivityIcon, UploadIcon, PencilIcon, CopyIcon, TrashIcon, SpecialistsIcon, FileDown, CalendarCheckIcon, FilterIcon, SearchIcon, FileText } from './components/icons';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -19,6 +20,15 @@ const App: React.FC = () => {
   const [isSpecialistModalOpen, setIsSpecialistModalOpen] = useState(false);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   const [isIconPickerModalOpen, setIsIconPickerModalOpen] = useState(false);
+  
+  // Import Preview State
+  const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
+  const [importPreviewData, setImportPreviewData] = useState<{
+      newVisits: Visit[];
+      newExams: Exam[];
+      newSpecialists: Specialist[];
+      totalFound: { visits: number, exams: number, specialists: number };
+  } | null>(null);
 
 
   const [editingVisit, setEditingVisit] = useState<Visit | null>(null);
@@ -34,6 +44,7 @@ const App: React.FC = () => {
   const importFileRef = useRef<HTMLInputElement>(null);
   const pdfReportRef = useRef<HTMLDivElement>(null);
 
+  const generateId = () => Date.now() + Math.floor(Math.random() * 1000);
 
   useEffect(() => {
     setVisits(storageService.get<Visit[]>('visits') || []);
@@ -105,7 +116,7 @@ const App: React.FC = () => {
     setVisits(currentVisits => {
       const updatedVisits = editingVisit
         ? currentVisits.map(v => v.id === editingVisit.id ? { ...visitFormState, id: v.id } : v)
-        : [...currentVisits, { ...visitFormState, id: Date.now() }];
+        : [...currentVisits, { ...visitFormState, id: generateId() }];
       storageService.set('visits', updatedVisits);
       return updatedVisits;
     });
@@ -120,7 +131,7 @@ const App: React.FC = () => {
     setExams(currentExams => {
       const updatedExams = editingExam
         ? currentExams.map(e => e.id === editingExam.id ? { ...examFormState, id: e.id } : e)
-        : [...currentExams, { ...examFormState, id: Date.now() }];
+        : [...currentExams, { ...examFormState, id: generateId() }];
       storageService.set('exams', updatedExams);
       return updatedExams;
     });
@@ -135,7 +146,7 @@ const App: React.FC = () => {
       setSpecialists(currentSpecialists => {
         const updatedSpecialists = editingSpecialist
           ? currentSpecialists.map(s => s.id === editingSpecialist.id ? { ...specialistFormState, id: s.id } : s)
-          : [...currentSpecialists, { ...specialistFormState, id: Date.now() }];
+          : [...currentSpecialists, { ...specialistFormState, id: generateId() }];
         storageService.set('specialists', updatedSpecialists);
         return updatedSpecialists;
       });
@@ -179,59 +190,206 @@ const App: React.FC = () => {
     }
     setItemToDelete(null);
   };
-
-  const totalCost = useMemo(() => 
-    visits.reduce((sum, v) => sum + v.cost, 0) + exams.reduce((sum, e) => sum + e.cost, 0),
-    [visits, exams]
-  );
   
-  const exportBackup = useCallback(() => {
-    const data = { visits, exams, specialists };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `medtrack-backup-${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [visits, exams, specialists]);
-  
-  const handleImportClick = () => importFileRef.current?.click();
+  // --------------------------------------------------------------------------------
+  // NEW: Import Logic with Preview Modal
+  // --------------------------------------------------------------------------------
 
-  const importBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const exportData = (format: 'json' | 'csv') => {
+    const timestamp = new Date().toISOString().split('T')[0];
+    const filename = `medtrack-export-${timestamp}`;
+
+    if (format === 'json') {
+        const data = { 
+            version: "1.0", 
+            exportedAt: new Date().toISOString(),
+            specialists, 
+            visits, 
+            exams 
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${filename}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    } else {
+        const headers = ['Tipo', 'Data', 'Specialista', 'Nome/Titolo', 'Dettagli/Note', 'Costo'];
+        const rows = [headers.join(',')];
+        const escape = (str: any) => str === null || str === undefined ? '' : `"${String(str).replace(/"/g, '""')}"`;
+        const getSpecName = (id: number | null) => specialists.find(s => s.id === id)?.name || '';
+
+        visits.forEach(v => {
+            rows.push(['Visita', escape(v.date), escape(getSpecName(v.specialistId)), escape('Visita di controllo'), escape(v.notes), escape(v.cost)].join(','));
+        });
+
+        exams.forEach(e => {
+            rows.push(['Esame', escape(e.date), escape(getSpecName(e.specialistId)), escape(e.name), escape(e.results ? `${e.results} ${e.notes}` : e.notes), escape(e.cost)].join(','));
+        });
+
+        const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${filename}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
+  };
+
+  const triggerImport = () => {
+      if (importFileRef.current) {
+          importFileRef.current.value = '';
+          importFileRef.current.click();
+      }
+  };
+
+  const handleFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       if (!file) return;
-
+      
       const reader = new FileReader();
       reader.onload = (e) => {
           try {
-              const text = e.target?.result;
-              if (typeof text !== 'string') throw new Error("File could not be read");
-              const data = JSON.parse(text);
+              const text = e.target?.result as string;
+              if (!text) throw new Error("File vuoto o impossibile da leggere");
 
-              if (Array.isArray(data.visits) && Array.isArray(data.exams) && Array.isArray(data.specialists)) {
-                 if (window.confirm(`Trovate ${data.visits.length} visite, ${data.exams.length} esami e ${data.specialists.length} specialisti. Vuoi sovrascrivere i dati attuali?`)) {
-                    setVisits(data.visits);
-                    storageService.set('visits', data.visits);
-                    setExams(data.exams);
-                    storageService.set('exams', data.exams);
-                    setSpecialists(data.specialists);
-                    storageService.set('specialists', data.specialists);
-                    alert('Importazione completata con successo!');
+              let rawVisits: any[] = [];
+              let rawExams: any[] = [];
+              let rawSpecialists: any[] = [];
+              let isJson = false;
+
+              // 1. Parse (JSON or CSV)
+              try {
+                  const data = JSON.parse(text);
+                  if (data.visits || data.exams || data.specialists || Array.isArray(data)) {
+                      isJson = true;
+                      rawVisits = Array.isArray(data.visits) ? data.visits : [];
+                      rawExams = Array.isArray(data.exams) ? data.exams : [];
+                      rawSpecialists = Array.isArray(data.specialists) ? data.specialists : [];
+                  }
+              } catch (e) { /* Not JSON */ }
+
+              if (!isJson) {
+                 const lines = text.split(/\r?\n/).filter(l => l.trim());
+                 if (lines.length > 0 && lines[0].includes(',')) {
+                     // Simple CSV parser
+                     for(let i = 1; i < lines.length; i++) {
+                         // Split by comma, handling quotes loosely if needed, or simple split
+                         // Using a regex to handle quoted commas is safer
+                         const cols = lines[i].match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)?.map(s => s.replace(/^"|"$/g, '').replace(/""/g, '"').trim()) || lines[i].split(',');
+                         
+                         if(cols.length < 2) continue;
+                         const [typeRaw, date, specName, title, notes, costRaw] = cols;
+                         const type = typeRaw ? typeRaw.toLowerCase().replace(/"/g, '') : '';
+
+                         let specId = 0; 
+                         if(specName) {
+                             specId = 900000 + i; // Temp ID
+                             rawSpecialists.push({ id: specId, name: specName.replace(/"/g, ''), icon: '⚕️', interval: 12 });
+                         }
+                         const baseId = Date.now() + (i * 100);
+                         if(type.includes('visita')) {
+                             rawVisits.push({ id: baseId, specialistId: specId, date: date || '', notes: notes || '', cost: Number(costRaw) || 0 });
+                         } else {
+                             rawExams.push({ id: baseId, specialistId: specId || null, name: title || 'Esame', date: date || '', results: notes || '', notes: '', cost: Number(costRaw) || 0 });
+                         }
+                     }
                  }
-              } else {
-                  throw new Error('Formato file non valido.');
               }
-          } catch (error: any) {
-              alert(`Errore durante l'importazione: ${error.message}`);
-          } finally {
-             if(importFileRef.current) importFileRef.current.value = "";
+
+              // 2. Analyze & Prepare Delta
+              const newSpecialistsToAdd: Specialist[] = [];
+              const specIdMap = new Map<number, number>(); 
+
+              // Map Specialists (By Name)
+              rawSpecialists.forEach((impS, idx) => {
+                  const existing = specialists.find(fs => fs.name.toLowerCase().trim() === impS.name.toLowerCase().trim());
+                  if(existing) {
+                      specIdMap.set(impS.id, existing.id);
+                  } else {
+                      // Check if we already staged this new specialist
+                      const staged = newSpecialistsToAdd.find(ns => ns.name.toLowerCase().trim() === impS.name.toLowerCase().trim());
+                      if(staged) {
+                          specIdMap.set(impS.id, staged.id);
+                      } else {
+                          const newId = Date.now() + Math.floor(Math.random() * 100000) + idx;
+                          specIdMap.set(impS.id, newId);
+                          newSpecialistsToAdd.push({...impS, id: newId});
+                      }
+                  }
+              });
+
+              // Filter Visits (Avoid Duplicates)
+              const newVisitsToAdd: Visit[] = [];
+              rawVisits.forEach((v, idx) => {
+                  const mappedSpecId = specIdMap.get(v.specialistId) || (specialists[0]?.id || 1);
+                  const exists = visits.some(ev => 
+                      (isJson && ev.id === v.id) || 
+                      (!isJson && ev.date === v.date && ev.specialistId === mappedSpecId && ev.notes === v.notes)
+                  );
+                  if(!exists) {
+                      newVisitsToAdd.push({...v, id: Date.now() + Math.random() + idx, specialistId: mappedSpecId});
+                  }
+              });
+
+              // Filter Exams (Avoid Duplicates)
+              const newExamsToAdd: Exam[] = [];
+              rawExams.forEach((e, idx) => {
+                  let mappedSpecId = e.specialistId ? specIdMap.get(e.specialistId) : null;
+                  if (mappedSpecId === undefined) mappedSpecId = null;
+
+                  const exists = exams.some(ee => 
+                      (isJson && ee.id === e.id) ||
+                      (!isJson && ee.date === e.date && ee.name === e.name)
+                  );
+                  if(!exists) {
+                      newExamsToAdd.push({...e, id: Date.now() + Math.random() + idx, specialistId: mappedSpecId || null});
+                  }
+              });
+
+              setImportPreviewData({
+                  newVisits: newVisitsToAdd,
+                  newExams: newExamsToAdd,
+                  newSpecialists: newSpecialistsToAdd,
+                  totalFound: { visits: rawVisits.length, exams: rawExams.length, specialists: rawSpecialists.length }
+              });
+              setIsImportPreviewOpen(true);
+
+          } catch (err: any) {
+              console.error(err);
+              alert(`Errore analisi file: ${err.message}`);
           }
       };
+      reader.onerror = () => alert("Errore di lettura del file (Permessi o Sicurezza).");
       reader.readAsText(file);
-  }
+  };
+
+  const confirmImport = () => {
+      if(!importPreviewData) return;
+
+      const finalSpecialists = [...specialists, ...importPreviewData.newSpecialists];
+      const finalVisits = [...visits, ...importPreviewData.newVisits];
+      const finalExams = [...exams, ...importPreviewData.newExams];
+
+      setSpecialists(finalSpecialists);
+      setVisits(finalVisits);
+      setExams(finalExams);
+
+      storageService.set('specialists', finalSpecialists);
+      storageService.set('visits', finalVisits);
+      storageService.set('exams', finalExams);
+
+      setIsImportPreviewOpen(false);
+      setImportPreviewData(null);
+      alert('Dati importati con successo!');
+  };
+
   
   const handleGeneratePdf = async () => {
     const reportElement = pdfReportRef.current;
@@ -268,7 +426,7 @@ const App: React.FC = () => {
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'dashboard': return <Dashboard visits={sortedVisits} exams={sortedExams} totalCost={totalCost} specialists={specialists} onCopyVisit={openCopyVisitModal} onCopyExam={openCopyExamModal} onEditVisit={openEditVisitModal} onEditExam={openEditExamModal} onDelete={(id, type) => requestDelete(id, type)} />;
+      case 'dashboard': return <Dashboard visits={sortedVisits} exams={sortedExams} specialists={specialists} onCopyVisit={openCopyVisitModal} onCopyExam={openCopyExamModal} onEditVisit={openEditVisitModal} onEditExam={openEditExamModal} onDelete={(id, type) => requestDelete(id, type)} />;
       case 'visits': return <ItemList items={sortedVisits} type="visit" onEdit={openEditVisitModal} onCopy={openCopyVisitModal} specialists={specialists} onDelete={(id) => requestDelete(id, 'visit')} />;
       case 'exams': return <ItemList items={sortedExams} type="exam" onEdit={openEditExamModal} onCopy={openCopyExamModal} specialists={specialists} onDelete={(id) => requestDelete(id, 'exam')} />;
       case 'ai': return <AISuggestions visits={visits} exams={exams} specialists={specialists} />;
@@ -281,26 +439,43 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
       <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
         <main className="bg-white rounded-3xl shadow-xl p-4 sm:p-6">
-          <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 pb-6 border-b">
+          <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-6 pb-6 border-b gap-4">
             <h1 className="text-3xl font-bold text-gray-900 flex items-center">
               <span className="text-4xl mr-3">🏥</span> Gestore Visite Mediche
             </h1>
-            <div className="flex items-center gap-2 mt-4 sm:mt-0">
-              <button onClick={openAddVisitModal} className="flex items-center bg-primary text-white px-4 py-2 rounded-lg font-semibold shadow hover:bg-blue-700 transition-all">
-                <PlusIcon /> <span className="ml-2 hidden sm:inline">Visita</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={openAddVisitModal} className="flex items-center bg-primary text-white px-3 py-2 rounded-lg font-semibold shadow hover:bg-blue-700 transition-all text-sm">
+                <PlusIcon /> <span className="ml-1">Visita</span>
               </button>
-              <button onClick={openAddExamModal} className="flex items-center bg-secondary text-white px-4 py-2 rounded-lg font-semibold shadow hover:bg-teal-700 transition-all">
-                <PlusIcon /> <span className="ml-2 hidden sm:inline">Esame</span>
+              <button onClick={openAddExamModal} className="flex items-center bg-secondary text-white px-3 py-2 rounded-lg font-semibold shadow hover:bg-teal-700 transition-all text-sm">
+                <PlusIcon /> <span className="ml-1">Esame</span>
               </button>
-              <input type="file" ref={importFileRef} onChange={importBackup} accept=".json" className="hidden" />
-              <button onClick={handleImportClick} title="Importa Backup" className="bg-yellow-500 text-white p-2.5 rounded-lg font-semibold shadow hover:bg-yellow-600 transition-all">
-                <UploadIcon />
+              <div className="h-8 w-px bg-gray-300 mx-1 hidden sm:block"></div>
+              
+              {/* Import Button & Input */}
+              <input 
+                type="file" 
+                ref={importFileRef} 
+                onChange={handleFileImport} 
+                accept=".json,.csv" 
+                className="hidden" 
+                style={{ display: 'none' }} 
+              />
+              <button onClick={triggerImport} title="Importa (JSON o CSV)" className="bg-yellow-500 text-white px-3 py-2 rounded-lg font-semibold shadow hover:bg-yellow-600 transition-all text-sm flex items-center">
+                <UploadIcon /> <span className="ml-1 hidden sm:inline">Importa</span>
               </button>
-              <button onClick={exportBackup} title="Esporta Backup" className="bg-green-600 text-white p-2.5 rounded-lg font-semibold shadow hover:bg-green-700 transition-all">
-                <DownloadIcon />
+              
+              {/* Export Buttons */}
+              <button onClick={() => exportData('json')} title="Backup Completo (JSON)" className="bg-gray-700 text-white px-3 py-2 rounded-lg font-semibold shadow hover:bg-gray-800 transition-all text-sm flex items-center">
+                <DownloadIcon /> <span className="ml-1 hidden sm:inline">Backup</span>
               </button>
-              <button onClick={() => setIsPdfModalOpen(true)} title="Esporta PDF" className="bg-red-500 text-white p-2.5 rounded-lg font-semibold shadow hover:bg-red-600 transition-all">
-                <FileDown />
+              
+              <button onClick={() => exportData('csv')} title="Esporta CSV per Excel" className="bg-green-600 text-white px-3 py-2 rounded-lg font-semibold shadow hover:bg-green-700 transition-all text-sm flex items-center">
+                <FileText className="h-4 w-4" /> <span className="ml-1 hidden sm:inline">CSV</span>
+              </button>
+
+              <button onClick={() => setIsPdfModalOpen(true)} title="Report PDF" className="bg-red-500 text-white px-3 py-2 rounded-lg font-semibold shadow hover:bg-red-600 transition-all text-sm flex items-center">
+                <FileDown /> <span className="ml-1 hidden sm:inline">PDF</span>
               </button>
             </div>
           </header>
@@ -356,6 +531,58 @@ const App: React.FC = () => {
             specialists={specialists}
             reportRef={pdfReportRef}
           />
+      </Modal>
+
+      {/* Import Confirmation Modal */}
+      <Modal isOpen={isImportPreviewOpen} onClose={() => setIsImportPreviewOpen(false)} title="Anteprima Importazione">
+        {importPreviewData ? (
+             <div className="space-y-4">
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+                    <p className="font-medium text-blue-800 mb-2">Analisi file completata:</p>
+                    <ul className="list-disc list-inside text-sm text-blue-700 space-y-1">
+                        <li>Trovati nel file: {importPreviewData.totalFound.visits} visite, {importPreviewData.totalFound.exams} esami.</li>
+                    </ul>
+                </div>
+
+                <div className="space-y-2">
+                    <h3 className="font-bold text-gray-800">Dati che verranno aggiunti:</h3>
+                    
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                         <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                             <p className="text-2xl font-bold text-green-600">+{importPreviewData.newVisits.length}</p>
+                             <p className="text-xs text-green-700 font-medium">Visite</p>
+                         </div>
+                         <div className="bg-teal-50 p-3 rounded-lg border border-teal-200">
+                             <p className="text-2xl font-bold text-teal-600">+{importPreviewData.newExams.length}</p>
+                             <p className="text-xs text-teal-700 font-medium">Esami</p>
+                         </div>
+                         <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
+                             <p className="text-2xl font-bold text-purple-600">+{importPreviewData.newSpecialists.length}</p>
+                             <p className="text-xs text-purple-700 font-medium">Specialisti</p>
+                         </div>
+                    </div>
+                    
+                    {(importPreviewData.newVisits.length === 0 && importPreviewData.newExams.length === 0 && importPreviewData.newSpecialists.length === 0) && (
+                        <p className="text-center text-sm text-gray-500 italic mt-2">Nessun dato nuovo trovato. Tutto il contenuto del file è già presente nell'app.</p>
+                    )}
+                </div>
+
+                <div className="flex gap-3 mt-6">
+                    <button onClick={() => setIsImportPreviewOpen(false)} className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">Annulla</button>
+                    <button 
+                        onClick={confirmImport} 
+                        disabled={importPreviewData.newVisits.length === 0 && importPreviewData.newExams.length === 0 && importPreviewData.newSpecialists.length === 0}
+                        className="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-semibold"
+                    >
+                        Conferma Importazione
+                    </button>
+                </div>
+             </div>
+        ) : (
+            <div className="flex justify-center p-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+        )}
       </Modal>
 
       <Modal isOpen={!!itemToDelete} onClose={() => setItemToDelete(null)} title="Conferma Eliminazione">
@@ -530,17 +757,71 @@ const UpcomingCheckupsCard: React.FC<{ visits: Visit[], specialists: Specialist[
     );
 };
 
-const Dashboard: React.FC<{ visits: Visit[], exams: Exam[], totalCost: number, specialists: Specialist[], onEditVisit: (v: Visit) => void, onCopyVisit: (v: Visit) => void, onEditExam: (e: Exam) => void, onCopyExam: (e: Exam) => void, onDelete: (id: number, type: 'visit' | 'exam') => void }> = ({ visits, exams, totalCost, specialists, onEditVisit, onCopyVisit, onEditExam, onCopyExam, onDelete }) => {
-    const recentItems = [...visits.map(v => ({...v, type: 'visit' as const})), ...exams.map(e => ({...e, type: 'exam' as const}))]
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        .slice(0, 5);
+const Dashboard: React.FC<{ visits: Visit[], exams: Exam[], specialists: Specialist[], onEditVisit: (v: Visit) => void, onCopyVisit: (v: Visit) => void, onEditExam: (e: Exam) => void, onCopyExam: (e: Exam) => void, onDelete: (id: number, type: 'visit' | 'exam') => void }> = ({ visits, exams, specialists, onEditVisit, onCopyVisit, onEditExam, onCopyExam, onDelete }) => {
+    const [searchQuery, setSearchQuery] = useState('');
+
+    const { filteredVisits, filteredExams } = useMemo(() => {
+        const getSpecialistName = (id: number | null) => {
+            if (id === null) return '';
+            const specialist = specialists.find(s => s.id === id);
+            // FIX: Handle cases where a specialist might not be found to prevent errors
+            return specialist ? specialist.name.toLowerCase() : '';
+        };
+
+        if (!searchQuery.trim()) {
+            return { filteredVisits: visits, filteredExams: exams };
+        }
+
+        const lowercasedQuery = searchQuery.toLowerCase().trim();
+
+        const filteredVisits = visits.filter(v => 
+            (v.notes || '').toLowerCase().includes(lowercasedQuery) ||
+            getSpecialistName(v.specialistId).includes(lowercasedQuery)
+        );
+
+        const filteredExams = exams.filter(e => 
+            (e.name || '').toLowerCase().includes(lowercasedQuery) ||
+            (e.results || '').toLowerCase().includes(lowercasedQuery) ||
+            (e.notes || '').toLowerCase().includes(lowercasedQuery) ||
+            getSpecialistName(e.specialistId).includes(lowercasedQuery)
+        );
+
+        return { filteredVisits, filteredExams };
+
+    }, [searchQuery, visits, exams, specialists]);
+
+    const filteredTotalCost = useMemo(() => 
+        filteredVisits.reduce((sum, v) => sum + v.cost, 0) + filteredExams.reduce((sum, e) => sum + e.cost, 0),
+        [filteredVisits, filteredExams]
+    );
+    
+    const hasSearch = searchQuery.trim().length > 0;
+
+    const allFilteredItems = [...filteredVisits.map(v => ({...v, type: 'visit' as const})), ...filteredExams.map(e => ({...e, type: 'exam' as const}))]
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const itemsToShow = hasSearch ? allFilteredItems : allFilteredItems.slice(0, 5);
 
     return (
         <div className="space-y-8">
+            <div className="relative">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+                   <SearchIcon />
+                </span>
+                <input
+                    type="text"
+                    placeholder="Cerca per nome, note, risultati, specialista..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg pl-10 pr-4 py-3 text-sm focus:ring-2 focus:ring-primary focus:border-primary transition-shadow shadow-sm"
+                    aria-label="Cerca attività"
+                />
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <StatCard title="Visite Totali" value={visits.length} color="from-blue-500 to-blue-600" />
-                <StatCard title="Esami Totali" value={exams.length} color="from-teal-500 to-teal-600" />
-                <StatCard title="Costo Totale" value={`€${totalCost.toFixed(2)}`} color="from-purple-500 to-purple-600" />
+                <StatCard title={hasSearch ? "Visite Trovate" : "Visite Totali"} value={filteredVisits.length} color="from-blue-500 to-blue-600" />
+                <StatCard title={hasSearch ? "Esami Trovati" : "Esami Totali"} value={filteredExams.length} color="from-teal-500 to-teal-600" />
+                <StatCard title={hasSearch ? "Costo Filtrato" : "Costo Totale"} value={`€${filteredTotalCost.toFixed(2)}`} color="from-purple-500 to-purple-600" />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -549,9 +830,9 @@ const Dashboard: React.FC<{ visits: Visit[], exams: Exam[], totalCost: number, s
             </div>
 
             <div>
-                <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center"><ActivityIcon/> Attività Recente</h2>
+                <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center"><ActivityIcon/> {hasSearch ? 'Risultati della Ricerca' : 'Attività Recente'}</h2>
                 <div className="space-y-3">
-                    {recentItems.length > 0 ? recentItems.map(item =>
+                    {itemsToShow.length > 0 ? itemsToShow.map(item =>
                         <ItemCard 
                             key={`${item.type}-${item.id}`}
                             item={item} 
@@ -561,14 +842,14 @@ const Dashboard: React.FC<{ visits: Visit[], exams: Exam[], totalCost: number, s
                             onDelete={onDelete}
                             specialists={specialists} 
                         />
-                    ) : <p className="text-gray-500 text-center py-4">Nessuna attività registrata.</p>}
+                    ) : <p className="text-gray-500 text-center py-4">{hasSearch ? 'Nessun risultato per la tua ricerca.' : 'Nessuna attività registrata.'}</p>}
                 </div>
             </div>
         </div>
     );
 }
 
-const VisitFilters: React.FC<{
+const ItemFilters: React.FC<{
     specialists: Specialist[];
     filterSpecialist: string;
     setFilterSpecialist: (id: string) => void;
@@ -637,56 +918,65 @@ const ItemList: React.FC<ItemListProps> = ({ items, type, onEdit, onCopy, onDele
         setFilterSpecialist('');
         setFilterStartDate('');
         setFilterEndDate('');
+        setSearchQuery('');
     };
     
     const filteredItems = useMemo(() => {
       let filtered = items;
 
-      if (type === 'visit') {
+      if (filterSpecialist || filterStartDate || filterEndDate) {
         filtered = filtered.filter(item => {
-          const visit = item as Visit;
-          const specialistMatch = !filterSpecialist || visit.specialistId === Number(filterSpecialist);
+          const itemWithSpecialist = item as Visit | Exam;
+          const specialistMatch = !filterSpecialist || (itemWithSpecialist.specialistId !== null && itemWithSpecialist.specialistId === Number(filterSpecialist));
           const startDateMatch = !filterStartDate || new Date(item.date) >= new Date(filterStartDate);
           const endDateMatch = !filterEndDate || new Date(item.date) < new Date(new Date(filterEndDate).setDate(new Date(filterEndDate).getDate() + 1));
           return specialistMatch && startDateMatch && endDateMatch;
         });
       }
 
+
       if (searchQuery.trim() !== '') {
         const lowercasedQuery = searchQuery.toLowerCase().trim();
         filtered = filtered.filter(item => {
-          if (type === 'visit') {
-            const visit = item as Visit;
-            return visit.notes.toLowerCase().includes(lowercasedQuery);
-          } else { // exam
-            const exam = item as Exam;
-            return (
-              exam.name.toLowerCase().includes(lowercasedQuery) ||
-              exam.results.toLowerCase().includes(lowercasedQuery) ||
-              exam.notes.toLowerCase().includes(lowercasedQuery)
-            );
-          }
+            const specialist = specialists.find(s => s.id === (item as Visit | Exam).specialistId);
+            const specialistName = specialist?.name ? specialist.name.toLowerCase() : '';
+            
+            if (type === 'visit') {
+                const visit = item as Visit;
+                return (visit.notes || '').toLowerCase().includes(lowercasedQuery) || specialistName.includes(lowercasedQuery);
+            } else { // exam
+                const exam = item as Exam;
+                return (
+                    (exam.name || '').toLowerCase().includes(lowercasedQuery) ||
+                    (exam.results || '').toLowerCase().includes(lowercasedQuery) ||
+                    (exam.notes || '').toLowerCase().includes(lowercasedQuery) ||
+                    specialistName.includes(lowercasedQuery)
+                );
+            }
         });
       }
 
       return filtered;
-    }, [items, type, filterSpecialist, filterStartDate, filterEndDate, searchQuery]);
+    }, [items, type, filterSpecialist, filterStartDate, filterEndDate, searchQuery, specialists]);
 
 
     return(
         <div className="space-y-4">
-            <div className="mb-4">
+            <div className="mb-4 relative">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+                   <SearchIcon />
+                </span>
                 <input
                     type="text"
-                    placeholder={type === 'visit' ? "Cerca nelle note..." : "Cerca per nome, risultati o note..."}
+                    placeholder={type === 'visit' ? "Cerca nelle note o per specialista..." : "Cerca per nome, risultati, note o specialista..."}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
+                    className="w-full border border-gray-300 rounded-lg pl-10 pr-4 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
                 />
             </div>
 
-            {type === 'visit' && (
-                <VisitFilters
+            {(type === 'visit' || type === 'exam') && (
+                <ItemFilters
                     specialists={specialists}
                     filterSpecialist={filterSpecialist}
                     setFilterSpecialist={setFilterSpecialist}
@@ -705,7 +995,7 @@ const ItemList: React.FC<ItemListProps> = ({ items, type, onEdit, onCopy, onDele
             ) : (
                 <div className="text-center py-10">
                     <p className="text-gray-500">Nessun {type === 'visit' ? 'visita' : 'esame'} trovato.</p>
-                    <p className="text-sm text-gray-400 mt-1">{searchQuery || filterSpecialist || filterStartDate ? 'Prova a modificare i filtri o la ricerca.' : `Aggiungi ${type === 'visit' ? 'una nuova visita' : 'un nuovo esame'} per iniziare.`}</p>
+                    <p className="text-sm text-gray-400 mt-1">{searchQuery || filterSpecialist || filterStartDate || filterEndDate ? 'Prova a modificare i filtri o la ricerca.' : `Aggiungi ${type === 'visit' ? 'una nuova visita' : 'un nuovo esame'} per iniziare.`}</p>
                 </div>
             )}
         </div>
@@ -805,7 +1095,7 @@ const ExamForm: React.FC<{form: Omit<Exam, 'id'>, setForm: React.Dispatch<React.
     </div>
 );
 
-const MEDICAL_ICONS = ['👁️','🦷','🦴','❤️','🩺','♀️','♂️','👨‍⚕️','👩‍⚕️','🧠','👃','👂','👶','🏃','🩸','💊','🚑','🔬','🧬','👶','🥼','🏥', ' pediatra', 'allergologo', 'anestesista', 'angiologo', 'audiologo', 'cardiologo', 'chiropratico', 'chirurgo', 'dermatologo', 'diabetologo', 'dietologo', 'ematologo', 'endocrinologo', 'epatologo', 'fisiatra', 'fisioterapista', 'gastroenterologo', 'genetista', 'geriatra', 'ginecologo', 'immunologo', 'infettivologo', 'logopedista', 'medico', 'nefrologo', 'neurochirurgo', 'neurologo', 'neuropsichiatra', 'oculista', 'odontoiatra', 'omeopata', 'oncologo', 'ortopedico', 'osteopata', 'otorinolaringoiatra', 'pneumologo', 'podologo', 'proctologo', 'psichiatra', 'psicologo', 'radiologo', 'reumatologo', 'senologo', 'stomatologo', 'urologo', 'veterinario'];
+const MEDICAL_ICONS = ['👁️','🦷','🦴','❤️','🩺','♀️','♂️','👨‍⚕️','👩‍⚕️','🧠','👃','👂','👶','🏃','🩸','💊','🚑','🔬','🧬','🥼','🏥'];
 
 const IconPicker: React.FC<{onSelect: (icon: string) => void}> = ({ onSelect }) => {
     return (
@@ -940,7 +1230,7 @@ const PdfExportModal: React.FC<{
                              <div key={e.id} className="mb-4 pb-4 border-b border-gray-100">
                                  <p><strong>Esame:</strong> {e.name}</p>
                                  <p><strong>Data:</strong> {new Date(e.date).toLocaleDateString('it-IT')}</p>
-                                 {e.specialistId && <p><strong>Prescritto da:</strong> {specialistMap[e.specialistId]?.name}</p>}
+                                 {e.specialistId && specialistMap[e.specialistId] && <p><strong>Prescritto da:</strong> {specialistMap[e.specialistId].name}</p>}
                                  {e.results && <p><strong>Risultati:</strong> {e.results}</p>}
                                  {e.notes && <p><strong>Note:</strong> {e.notes}</p>}
                                  {e.cost > 0 && <p><strong>Costo:</strong> €{e.cost.toFixed(2)}</p>}
