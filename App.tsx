@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Visit, Exam, Specialist, Tab } from './types';
 import { storageService } from './services/storageService';
-import { DEFAULT_SPECIALISTS } from './constants';
+import { DEFAULT_SPECIALISTS, APP_VERSION, CHANGELOG } from './constants';
 import Modal from './components/Modal';
 import AISuggestions from './components/AISuggestions';
 import { PlusIcon, DownloadIcon, DashboardIcon, VisitsIcon, ExamsIcon, BotIcon, ActivityIcon, UploadIcon, PencilIcon, CopyIcon, TrashIcon, SpecialistsIcon, FileDown, CalendarCheckIcon, FilterIcon, SearchIcon, FileText } from './components/icons';
@@ -20,6 +20,7 @@ const App: React.FC = () => {
   const [isSpecialistModalOpen, setIsSpecialistModalOpen] = useState(false);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   const [isIconPickerModalOpen, setIsIconPickerModalOpen] = useState(false);
+  const [isChangelogModalOpen, setIsChangelogModalOpen] = useState(false);
   
   // Import Preview State
   const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
@@ -440,8 +441,17 @@ const App: React.FC = () => {
       <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
         <main className="bg-white rounded-3xl shadow-xl p-4 sm:p-6">
           <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-6 pb-6 border-b gap-4">
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center">
-              <span className="text-4xl mr-3">🏥</span> Gestore Visite Mediche
+            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+              <div className="flex items-center">
+                 <span className="text-4xl mr-3">🏥</span> Gestore Visite Mediche
+              </div>
+              <button 
+                onClick={() => setIsChangelogModalOpen(true)}
+                className="bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs font-bold px-2 py-1 rounded-full transition-colors cursor-pointer border border-blue-200"
+                title="Vedi cronologia versioni"
+              >
+                v{APP_VERSION}
+              </button>
             </h1>
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={openAddVisitModal} className="flex items-center bg-primary text-white px-3 py-2 rounded-lg font-semibold shadow hover:bg-blue-700 transition-all text-sm">
@@ -531,6 +541,32 @@ const App: React.FC = () => {
             specialists={specialists}
             reportRef={pdfReportRef}
           />
+      </Modal>
+
+      {/* Changelog Modal */}
+      <Modal isOpen={isChangelogModalOpen} onClose={() => setIsChangelogModalOpen(false)} title="Cronologia Aggiornamenti">
+        <div className="space-y-8 p-2 max-h-[60vh] overflow-y-auto">
+            {CHANGELOG.map((log, index) => (
+                <div key={index} className="relative pl-6 border-l-2 border-gray-200 last:border-0">
+                    <div className="absolute -left-[5px] top-0 w-2.5 h-2.5 rounded-full bg-primary ring-4 ring-white"></div>
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2">
+                        <h3 className="text-lg font-bold text-gray-800">Versione {log.version}</h3>
+                        <span className="text-sm text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{new Date(log.date).toLocaleDateString('it-IT', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                    </div>
+                    <ul className="space-y-1">
+                        {log.changes.map((change, i) => (
+                            <li key={i} className="text-gray-600 text-sm flex items-start">
+                                <span className="mr-2 text-primary">•</span>
+                                <span>{change}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ))}
+        </div>
+        <div className="mt-6 text-center text-xs text-gray-400">
+            Gestore Visite Mediche &copy; {new Date().getFullYear()}
+        </div>
       </Modal>
 
       {/* Import Confirmation Modal */}

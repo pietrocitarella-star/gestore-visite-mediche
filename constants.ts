@@ -1,6 +1,40 @@
 
 import { Specialist } from './types';
 
+export const APP_VERSION = '1.2.0';
+
+export const CHANGELOG = [
+  {
+    version: '1.2.0',
+    date: '2025-11-18',
+    changes: [
+      'Introdotto il changelog per tracciare gli aggiornamenti.',
+      'Migliorata la stabilità generale dell\'applicazione.',
+      'Ottimizzazione dell\'interfaccia utente.',
+    ]
+  },
+  {
+    version: '1.1.0',
+    date: '2025-11-17',
+    changes: [
+      'Rifatta completamente la logica di importazione/esportazione.',
+      'Aggiunta anteprima dei dati prima dell\'importazione.',
+      'Supporto migliorato per file CSV e JSON con merging intelligente.',
+      'Risolti problemi di compatibilità con il caricamento dei file.',
+    ]
+  },
+  {
+    version: '1.0.0',
+    date: '2025-01-01',
+    changes: [
+      'Rilascio iniziale dell\'applicazione.',
+      'Gestione visite, esami e specialisti.',
+      'Integrazione AI per suggerimenti sulla salute.',
+      'Esportazione PDF e backup dati.',
+    ]
+  }
+];
+
 export const DEFAULT_SPECIALISTS: Specialist[] = [
   { id: 1, name: 'Oculista', icon: '👁️', interval: 12 },
   { id: 2, name: 'Dentista', icon: '🦷', interval: 6 },
