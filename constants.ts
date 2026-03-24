@@ -1,9 +1,17 @@
 
 import { Specialist } from './types';
 
-export const APP_VERSION = '1.2.0';
+export const APP_VERSION = '1.3.0';
 
 export const CHANGELOG = [
+  {
+    version: '1.3.0',
+    date: new Date().toISOString().split('T')[0],
+    changes: [
+      'Aggiunta funzionalità per tracciare le cure mediche (farmaci e tempistiche).',
+      'Aggiunta visualizzazione dei prossimi 3 controlli nella dashboard (indipendentemente dai filtri).',
+    ]
+  },
   {
     version: '1.2.0',
     date: '2025-11-18',

@@ -24,4 +24,14 @@ export interface Exam {
   cost: number;
 }
 
-export type Tab = 'dashboard' | 'visits' | 'exams' | 'ai' | 'specialists';
+export interface Treatment {
+  id: number;
+  specialistId: number;
+  name: string; // Nome della cura
+  medications: string; // Farmaci
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  notes: string;
+}
+
+export type Tab = 'dashboard' | 'visits' | 'exams' | 'treatments' | 'ai' | 'specialists';

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Visit, Exam, Specialist, Tab } from './types';
+import { Visit, Exam, Specialist, Tab, Treatment } from './types';
 import { storageService } from './services/storageService';
 import { DEFAULT_SPECIALISTS, APP_VERSION, CHANGELOG } from './constants';
 import Modal from './components/Modal';
@@ -13,11 +13,13 @@ const App: React.FC = () => {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
+  const [treatments, setTreatments] = useState<Treatment[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
   const [isExamModalOpen, setIsExamModalOpen] = useState(false);
   const [isSpecialistModalOpen, setIsSpecialistModalOpen] = useState(false);
+  const [isTreatmentModalOpen, setIsTreatmentModalOpen] = useState(false);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   const [isIconPickerModalOpen, setIsIconPickerModalOpen] = useState(false);
   const [isChangelogModalOpen, setIsChangelogModalOpen] = useState(false);
@@ -28,19 +30,22 @@ const App: React.FC = () => {
       newVisits: Visit[];
       newExams: Exam[];
       newSpecialists: Specialist[];
-      totalFound: { visits: number, exams: number, specialists: number };
+      newTreatments: Treatment[];
+      totalFound: { visits: number, exams: number, specialists: number, treatments: number };
   } | null>(null);
 
 
   const [editingVisit, setEditingVisit] = useState<Visit | null>(null);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
   const [editingSpecialist, setEditingSpecialist] = useState<Specialist | null>(null);
+  const [editingTreatment, setEditingTreatment] = useState<Treatment | null>(null);
 
   const [visitFormState, setVisitFormState] = useState<Omit<Visit, 'id'>>({ specialistId: 0, date: '', notes: '', cost: 0 });
   const [examFormState, setExamFormState] = useState<Omit<Exam, 'id'>>({ name: '', date: '', specialistId: null, results: '', notes: '', cost: 0 });
   const [specialistFormState, setSpecialistFormState] = useState<Omit<Specialist, 'id'>>({ name: '', icon: '', interval: 12 });
+  const [treatmentFormState, setTreatmentFormState] = useState<Omit<Treatment, 'id'>>({ specialistId: 0, name: '', medications: '', startDate: '', endDate: '', notes: '' });
   
-  const [itemToDelete, setItemToDelete] = useState<{ id: number; type: 'visit' | 'exam' | 'specialist' } | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<{ id: number; type: 'visit' | 'exam' | 'specialist' | 'treatment' } | null>(null);
 
   const importFileRef = useRef<HTMLInputElement>(null);
   const pdfReportRef = useRef<HTMLDivElement>(null);
@@ -51,11 +56,13 @@ const App: React.FC = () => {
     setVisits(storageService.get<Visit[]>('visits') || []);
     setExams(storageService.get<Exam[]>('exams') || []);
     setSpecialists(storageService.get<Specialist[]>('specialists') || DEFAULT_SPECIALISTS);
+    setTreatments(storageService.get<Treatment[]>('treatments') || []);
   }, []);
 
   const sortedVisits = useMemo(() => [...visits].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [visits]);
   const sortedExams = useMemo(() => [...exams].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [exams]);
   const sortedSpecialists = useMemo(() => [...specialists].sort((a, b) => a.name.localeCompare(b.name)), [specialists]);
+  const sortedTreatments = useMemo(() => [...treatments].sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()), [treatments]);
 
   // Modal Openers
   const openAddVisitModal = () => {
@@ -108,6 +115,25 @@ const App: React.FC = () => {
     setIsSpecialistModalOpen(true);
   }
 
+  const openAddTreatmentModal = () => {
+    setEditingTreatment(null);
+    setTreatmentFormState({ specialistId: specialists[0]?.id || 1, name: '', medications: '', startDate: new Date().toISOString().split('T')[0], endDate: '', notes: '' });
+    setIsTreatmentModalOpen(true);
+  }
+
+  const openEditTreatmentModal = (treatment: Treatment) => {
+    setEditingTreatment(treatment);
+    setTreatmentFormState(treatment);
+    setIsTreatmentModalOpen(true);
+  }
+
+  const openCopyTreatmentModal = (treatment: Treatment) => {
+    setEditingTreatment(null);
+    const { id, ...treatmentData } = treatment;
+    setTreatmentFormState({ ...treatmentData, startDate: new Date().toISOString().split('T')[0]});
+    setIsTreatmentModalOpen(true);
+  }
+
   // CRUD Operations
   const saveVisit = () => {
     if (!visitFormState.specialistId || !visitFormState.date) {
@@ -154,7 +180,22 @@ const App: React.FC = () => {
       setIsSpecialistModalOpen(false);
   }
 
-  const requestDelete = (id: number, type: 'visit' | 'exam' | 'specialist') => {
+  const saveTreatment = () => {
+    if (!treatmentFormState.specialistId || !treatmentFormState.name || !treatmentFormState.startDate) {
+      alert('Per favore, compila specialista, nome della cura e data di inizio.');
+      return;
+    }
+    setTreatments(currentTreatments => {
+      const updatedTreatments = editingTreatment
+        ? currentTreatments.map(t => t.id === editingTreatment.id ? { ...treatmentFormState, id: t.id } : t)
+        : [...currentTreatments, { ...treatmentFormState, id: generateId() }];
+      storageService.set('treatments', updatedTreatments);
+      return updatedTreatments;
+    });
+    setIsTreatmentModalOpen(false);
+  };
+
+  const requestDelete = (id: number, type: 'visit' | 'exam' | 'specialist' | 'treatment') => {
     setItemToDelete({ id, type });
   };
   
@@ -177,14 +218,21 @@ const App: React.FC = () => {
             });
             break;
         case 'specialist':
-            if (visits.some(v => v.specialistId === itemToDelete.id) || exams.some(e => e.specialistId === itemToDelete.id)) {
-                alert('Impossibile eliminare uno specialista associato a visite o esami esistenti.');
+            if (visits.some(v => v.specialistId === itemToDelete.id) || exams.some(e => e.specialistId === itemToDelete.id) || treatments.some(t => t.specialistId === itemToDelete.id)) {
+                alert('Impossibile eliminare uno specialista associato a visite, esami o cure esistenti.');
                 setItemToDelete(null);
                 return;
             }
             setSpecialists(current => {
                 const updated = current.filter(s => s.id !== itemToDelete.id);
                 storageService.set('specialists', updated);
+                return updated;
+            });
+            break;
+        case 'treatment':
+            setTreatments(current => {
+                const updated = current.filter(t => t.id !== itemToDelete.id);
+                storageService.set('treatments', updated);
                 return updated;
             });
             break;
@@ -196,52 +244,57 @@ const App: React.FC = () => {
   // NEW: Import Logic with Preview Modal
   // --------------------------------------------------------------------------------
 
-  const exportData = (format: 'json' | 'csv') => {
-    const timestamp = new Date().toISOString().split('T')[0];
-    const filename = `medtrack-export-${timestamp}`;
+    const exportData = (format: 'json' | 'csv') => {
+        const timestamp = new Date().toISOString().split('T')[0];
+        const filename = `medtrack-export-${timestamp}`;
 
-    if (format === 'json') {
-        const data = { 
-            version: "1.0", 
-            exportedAt: new Date().toISOString(),
-            specialists, 
-            visits, 
-            exams 
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${filename}.json`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-    } else {
-        const headers = ['Tipo', 'Data', 'Specialista', 'Nome/Titolo', 'Dettagli/Note', 'Costo'];
-        const rows = [headers.join(',')];
-        const escape = (str: any) => str === null || str === undefined ? '' : `"${String(str).replace(/"/g, '""')}"`;
-        const getSpecName = (id: number | null) => specialists.find(s => s.id === id)?.name || '';
+        if (format === 'json') {
+            const data = { 
+                version: "1.0", 
+                exportedAt: new Date().toISOString(),
+                specialists, 
+                visits, 
+                exams,
+                treatments
+            };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${filename}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        } else {
+            const headers = ['Tipo', 'Data Inizio', 'Data Fine', 'Specialista', 'Nome/Titolo', 'Dettagli/Note', 'Costo'];
+            const rows = [headers.join(',')];
+            const escape = (str: any) => str === null || str === undefined ? '' : `"${String(str).replace(/"/g, '""')}"`;
+            const getSpecName = (id: number | null) => specialists.find(s => s.id === id)?.name || '';
 
-        visits.forEach(v => {
-            rows.push(['Visita', escape(v.date), escape(getSpecName(v.specialistId)), escape('Visita di controllo'), escape(v.notes), escape(v.cost)].join(','));
-        });
+            visits.forEach(v => {
+                rows.push(['Visita', escape(v.date), '', escape(getSpecName(v.specialistId)), escape('Visita di controllo'), escape(v.notes), escape(v.cost)].join(','));
+            });
 
-        exams.forEach(e => {
-            rows.push(['Esame', escape(e.date), escape(getSpecName(e.specialistId)), escape(e.name), escape(e.results ? `${e.results} ${e.notes}` : e.notes), escape(e.cost)].join(','));
-        });
+            exams.forEach(e => {
+                rows.push(['Esame', escape(e.date), '', escape(getSpecName(e.specialistId)), escape(e.name), escape(e.results ? `${e.results} ${e.notes}` : e.notes), escape(e.cost)].join(','));
+            });
 
-        const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${filename}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-    }
-  };
+            treatments.forEach(t => {
+                rows.push(['Cura', escape(t.startDate), escape(t.endDate), escape(getSpecName(t.specialistId)), escape(t.name), escape(`Farmaci: ${t.medications}. ${t.notes}`), ''].join(','));
+            });
+
+            const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${filename}.csv`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
+    };
 
   const triggerImport = () => {
       if (importFileRef.current) {
@@ -263,16 +316,18 @@ const App: React.FC = () => {
               let rawVisits: any[] = [];
               let rawExams: any[] = [];
               let rawSpecialists: any[] = [];
+              let rawTreatments: any[] = [];
               let isJson = false;
 
               // 1. Parse (JSON or CSV)
               try {
                   const data = JSON.parse(text);
-                  if (data.visits || data.exams || data.specialists || Array.isArray(data)) {
+                  if (data.visits || data.exams || data.specialists || data.treatments || Array.isArray(data)) {
                       isJson = true;
                       rawVisits = Array.isArray(data.visits) ? data.visits : [];
                       rawExams = Array.isArray(data.exams) ? data.exams : [];
                       rawSpecialists = Array.isArray(data.specialists) ? data.specialists : [];
+                      rawTreatments = Array.isArray(data.treatments) ? data.treatments : [];
                   }
               } catch (e) { /* Not JSON */ }
 
@@ -354,11 +409,27 @@ const App: React.FC = () => {
                   }
               });
 
+              // Filter Treatments (Avoid Duplicates)
+              const newTreatmentsToAdd: Treatment[] = [];
+              rawTreatments.forEach((t, idx) => {
+                  let mappedSpecId = t.specialistId ? specIdMap.get(t.specialistId) : null;
+                  if (mappedSpecId === undefined) mappedSpecId = null;
+
+                  const exists = treatments.some(et => 
+                      (isJson && et.id === t.id) ||
+                      (!isJson && et.startDate === t.startDate && et.name === t.name)
+                  );
+                  if(!exists) {
+                      newTreatmentsToAdd.push({...t, id: Date.now() + Math.random() + idx, specialistId: mappedSpecId || null});
+                  }
+              });
+
               setImportPreviewData({
                   newVisits: newVisitsToAdd,
                   newExams: newExamsToAdd,
                   newSpecialists: newSpecialistsToAdd,
-                  totalFound: { visits: rawVisits.length, exams: rawExams.length, specialists: rawSpecialists.length }
+                  newTreatments: newTreatmentsToAdd,
+                  totalFound: { visits: rawVisits.length, exams: rawExams.length, specialists: rawSpecialists.length, treatments: rawTreatments.length }
               });
               setIsImportPreviewOpen(true);
 
@@ -377,14 +448,17 @@ const App: React.FC = () => {
       const finalSpecialists = [...specialists, ...importPreviewData.newSpecialists];
       const finalVisits = [...visits, ...importPreviewData.newVisits];
       const finalExams = [...exams, ...importPreviewData.newExams];
+      const finalTreatments = [...treatments, ...importPreviewData.newTreatments];
 
       setSpecialists(finalSpecialists);
       setVisits(finalVisits);
       setExams(finalExams);
+      setTreatments(finalTreatments);
 
       storageService.set('specialists', finalSpecialists);
       storageService.set('visits', finalVisits);
       storageService.set('exams', finalExams);
+      storageService.set('treatments', finalTreatments);
 
       setIsImportPreviewOpen(false);
       setImportPreviewData(null);
@@ -427,9 +501,10 @@ const App: React.FC = () => {
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'dashboard': return <Dashboard visits={sortedVisits} exams={sortedExams} specialists={specialists} onCopyVisit={openCopyVisitModal} onCopyExam={openCopyExamModal} onEditVisit={openEditVisitModal} onEditExam={openEditExamModal} onDelete={(id, type) => requestDelete(id, type)} />;
+      case 'dashboard': return <Dashboard visits={sortedVisits} exams={sortedExams} specialists={specialists} treatments={sortedTreatments} onCopyVisit={openCopyVisitModal} onCopyExam={openCopyExamModal} onEditVisit={openEditVisitModal} onEditExam={openEditExamModal} onEditTreatment={openEditTreatmentModal} onCopyTreatment={openCopyTreatmentModal} onDelete={(id, type) => requestDelete(id, type)} />;
       case 'visits': return <ItemList items={sortedVisits} type="visit" onEdit={openEditVisitModal} onCopy={openCopyVisitModal} specialists={specialists} onDelete={(id) => requestDelete(id, 'visit')} />;
       case 'exams': return <ItemList items={sortedExams} type="exam" onEdit={openEditExamModal} onCopy={openCopyExamModal} specialists={specialists} onDelete={(id) => requestDelete(id, 'exam')} />;
+      case 'treatments': return <TreatmentList items={sortedTreatments} onEdit={openEditTreatmentModal} onCopy={openCopyTreatmentModal} specialists={specialists} onDelete={(id) => requestDelete(id, 'treatment')} />;
       case 'ai': return <AISuggestions visits={visits} exams={exams} specialists={specialists} />;
       case 'specialists': return <SpecialistsManager specialists={sortedSpecialists} onAdd={openAddSpecialistModal} onEdit={openEditSpecialistModal} onDelete={(id) => requestDelete(id, 'specialist')} />;
       default: return null;
@@ -459,6 +534,9 @@ const App: React.FC = () => {
               </button>
               <button onClick={openAddExamModal} className="flex items-center bg-secondary text-white px-3 py-2 rounded-lg font-semibold shadow hover:bg-teal-700 transition-all text-sm">
                 <PlusIcon /> <span className="ml-1">Esame</span>
+              </button>
+              <button onClick={openAddTreatmentModal} className="flex items-center bg-accent text-white px-3 py-2 rounded-lg font-semibold shadow hover:bg-purple-700 transition-all text-sm">
+                <PlusIcon /> <span className="ml-1">Cura</span>
               </button>
               <div className="h-8 w-px bg-gray-300 mx-1 hidden sm:block"></div>
               
@@ -533,6 +611,10 @@ const App: React.FC = () => {
           }} />
       </Modal>
 
+      <Modal isOpen={isTreatmentModalOpen} onClose={() => setIsTreatmentModalOpen(false)} title={editingTreatment ? "Modifica Cura" : "Aggiungi Cura"}>
+        <TreatmentForm form={treatmentFormState} setForm={setTreatmentFormState} onSave={saveTreatment} specialists={specialists} />
+      </Modal>
+
       <Modal isOpen={isPdfModalOpen} onClose={() => setIsPdfModalOpen(false)} title="Esporta Report PDF">
           <PdfExportModal
             onGenerate={handleGeneratePdf}
@@ -576,14 +658,14 @@ const App: React.FC = () => {
                 <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
                     <p className="font-medium text-blue-800 mb-2">Analisi file completata:</p>
                     <ul className="list-disc list-inside text-sm text-blue-700 space-y-1">
-                        <li>Trovati nel file: {importPreviewData.totalFound.visits} visite, {importPreviewData.totalFound.exams} esami.</li>
+                        <li>Trovati nel file: {importPreviewData.totalFound.visits} visite, {importPreviewData.totalFound.exams} esami, {importPreviewData.totalFound.treatments} cure.</li>
                     </ul>
                 </div>
 
                 <div className="space-y-2">
                     <h3 className="font-bold text-gray-800">Dati che verranno aggiunti:</h3>
                     
-                    <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="grid grid-cols-4 gap-2 text-center">
                          <div className="bg-green-50 p-3 rounded-lg border border-green-200">
                              <p className="text-2xl font-bold text-green-600">+{importPreviewData.newVisits.length}</p>
                              <p className="text-xs text-green-700 font-medium">Visite</p>
@@ -592,13 +674,17 @@ const App: React.FC = () => {
                              <p className="text-2xl font-bold text-teal-600">+{importPreviewData.newExams.length}</p>
                              <p className="text-xs text-teal-700 font-medium">Esami</p>
                          </div>
+                         <div className="bg-orange-50 p-3 rounded-lg border border-orange-200">
+                             <p className="text-2xl font-bold text-orange-600">+{importPreviewData.newTreatments.length}</p>
+                             <p className="text-xs text-orange-700 font-medium">Cure</p>
+                         </div>
                          <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
                              <p className="text-2xl font-bold text-purple-600">+{importPreviewData.newSpecialists.length}</p>
                              <p className="text-xs text-purple-700 font-medium">Specialisti</p>
                          </div>
                     </div>
                     
-                    {(importPreviewData.newVisits.length === 0 && importPreviewData.newExams.length === 0 && importPreviewData.newSpecialists.length === 0) && (
+                    {(importPreviewData.newVisits.length === 0 && importPreviewData.newExams.length === 0 && importPreviewData.newSpecialists.length === 0 && importPreviewData.newTreatments.length === 0) && (
                         <p className="text-center text-sm text-gray-500 italic mt-2">Nessun dato nuovo trovato. Tutto il contenuto del file è già presente nell'app.</p>
                     )}
                 </div>
@@ -607,7 +693,7 @@ const App: React.FC = () => {
                     <button onClick={() => setIsImportPreviewOpen(false)} className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">Annulla</button>
                     <button 
                         onClick={confirmImport} 
-                        disabled={importPreviewData.newVisits.length === 0 && importPreviewData.newExams.length === 0 && importPreviewData.newSpecialists.length === 0}
+                        disabled={importPreviewData.newVisits.length === 0 && importPreviewData.newExams.length === 0 && importPreviewData.newSpecialists.length === 0 && importPreviewData.newTreatments.length === 0}
                         className="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-semibold"
                     >
                         Conferma Importazione
@@ -643,6 +729,7 @@ const tabs: {id: Tab, name: string, icon: React.ReactNode}[] = [
     { id: 'dashboard', name: 'Dashboard', icon: <DashboardIcon/> },
     { id: 'visits', name: 'Visite', icon: <VisitsIcon/> },
     { id: 'exams', name: 'Esami', icon: <ExamsIcon/> },
+    { id: 'treatments', name: 'Cure', icon: <ActivityIcon/> },
     { id: 'specialists', name: 'Specialisti', icon: <SpecialistsIcon/> },
     { id: 'ai', name: 'AI Insights', icon: <BotIcon/> },
 ];
@@ -734,7 +821,7 @@ const UpcomingCheckupsCard: React.FC<{ visits: Visit[], specialists: Specialist[
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        return specialists.map(specialist => {
+        const allCheckups = specialists.map(specialist => {
             const lastVisit = visits
                 .filter(v => v.specialistId === specialist.id)
                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
@@ -745,19 +832,15 @@ const UpcomingCheckupsCard: React.FC<{ visits: Visit[], specialists: Specialist[
             nextDueDate.setMonth(nextDueDate.getMonth() + specialist.interval);
 
             const isOverdue = nextDueDate < today;
-            const daysDifference = Math.ceil((nextDueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
             
-            // Show only if overdue or due in the next 60 days
-            if (isOverdue || daysDifference <= 60) {
-                return {
-                    specialist,
-                    dueDate: nextDueDate,
-                    isOverdue,
-                };
-            }
-            return null;
+            return {
+                specialist,
+                dueDate: nextDueDate,
+                isOverdue,
+            };
+        }).filter(Boolean) as { specialist: Specialist, dueDate: Date, isOverdue: boolean }[];
 
-        }).filter(Boolean).sort((a, b) => a!.dueDate.getTime() - b!.dueDate.getTime());
+        return allCheckups.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime()).slice(0, 3);
     }, [visits, specialists]);
 
     return (
@@ -769,14 +852,14 @@ const UpcomingCheckupsCard: React.FC<{ visits: Visit[], specialists: Specialist[
             <div className="space-y-3">
                 {upcomingCheckups.length > 0 ? (
                     upcomingCheckups.map(checkup => (
-                        <div key={checkup!.specialist.id} className={`flex items-center justify-between p-3 rounded-lg ${checkup!.isOverdue ? 'bg-red-50 border-l-4 border-red-500' : 'bg-blue-50 border-l-4 border-blue-500'}`}>
+                        <div key={checkup.specialist.id} className={`flex items-center justify-between p-3 rounded-lg ${checkup.isOverdue ? 'bg-red-50 border-l-4 border-red-500' : 'bg-blue-50 border-l-4 border-blue-500'}`}>
                             <div className="flex items-center gap-3">
-                                <span className="text-2xl">{checkup!.specialist.icon}</span>
+                                <span className="text-2xl">{checkup.specialist.icon}</span>
                                 <div>
-                                    <p className="font-semibold text-gray-800">{checkup!.specialist.name}</p>
-                                    <p className={`text-sm ${checkup!.isOverdue ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
-                                        {checkup!.isOverdue ? 'Scaduto il ' : 'Previsto per il '}
-                                        {checkup!.dueDate.toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' })}
+                                    <p className="font-semibold text-gray-800">{checkup.specialist.name}</p>
+                                    <p className={`text-sm ${checkup.isOverdue ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
+                                        {checkup.isOverdue ? 'Scaduto il ' : 'Previsto per il '}
+                                        {checkup.dueDate.toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' })}
                                     </p>
                                 </div>
                             </div>
@@ -793,10 +876,10 @@ const UpcomingCheckupsCard: React.FC<{ visits: Visit[], specialists: Specialist[
     );
 };
 
-const Dashboard: React.FC<{ visits: Visit[], exams: Exam[], specialists: Specialist[], onEditVisit: (v: Visit) => void, onCopyVisit: (v: Visit) => void, onEditExam: (e: Exam) => void, onCopyExam: (e: Exam) => void, onDelete: (id: number, type: 'visit' | 'exam') => void }> = ({ visits, exams, specialists, onEditVisit, onCopyVisit, onEditExam, onCopyExam, onDelete }) => {
+const Dashboard: React.FC<{ visits: Visit[], exams: Exam[], specialists: Specialist[], treatments: Treatment[], onEditVisit: (v: Visit) => void, onCopyVisit: (v: Visit) => void, onEditExam: (e: Exam) => void, onCopyExam: (e: Exam) => void, onEditTreatment: (t: Treatment) => void, onCopyTreatment: (t: Treatment) => void, onDelete: (id: number, type: 'visit' | 'exam' | 'treatment') => void }> = ({ visits, exams, specialists, treatments, onEditVisit, onCopyVisit, onEditExam, onCopyExam, onEditTreatment, onCopyTreatment, onDelete }) => {
     const [searchQuery, setSearchQuery] = useState('');
 
-    const { filteredVisits, filteredExams } = useMemo(() => {
+    const { filteredVisits, filteredExams, filteredTreatments } = useMemo(() => {
         const getSpecialistName = (id: number | null) => {
             if (id === null) return '';
             const specialist = specialists.find(s => s.id === id);
@@ -805,7 +888,7 @@ const Dashboard: React.FC<{ visits: Visit[], exams: Exam[], specialists: Special
         };
 
         if (!searchQuery.trim()) {
-            return { filteredVisits: visits, filteredExams: exams };
+            return { filteredVisits: visits, filteredExams: exams, filteredTreatments: treatments };
         }
 
         const lowercasedQuery = searchQuery.toLowerCase().trim();
@@ -822,9 +905,16 @@ const Dashboard: React.FC<{ visits: Visit[], exams: Exam[], specialists: Special
             getSpecialistName(e.specialistId).includes(lowercasedQuery)
         );
 
-        return { filteredVisits, filteredExams };
+        const filteredTreatments = treatments.filter(t => 
+            (t.name || '').toLowerCase().includes(lowercasedQuery) ||
+            (t.medications || '').toLowerCase().includes(lowercasedQuery) ||
+            (t.notes || '').toLowerCase().includes(lowercasedQuery) ||
+            getSpecialistName(t.specialistId).includes(lowercasedQuery)
+        );
 
-    }, [searchQuery, visits, exams, specialists]);
+        return { filteredVisits, filteredExams, filteredTreatments };
+
+    }, [searchQuery, visits, exams, specialists, treatments]);
 
     const filteredTotalCost = useMemo(() => 
         filteredVisits.reduce((sum, v) => sum + v.cost, 0) + filteredExams.reduce((sum, e) => sum + e.cost, 0),
@@ -833,8 +923,11 @@ const Dashboard: React.FC<{ visits: Visit[], exams: Exam[], specialists: Special
     
     const hasSearch = searchQuery.trim().length > 0;
 
-    const allFilteredItems = [...filteredVisits.map(v => ({...v, type: 'visit' as const})), ...filteredExams.map(e => ({...e, type: 'exam' as const}))]
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const allFilteredItems = [
+        ...filteredVisits.map(v => ({...v, type: 'visit' as const, sortDate: v.date})), 
+        ...filteredExams.map(e => ({...e, type: 'exam' as const, sortDate: e.date})),
+        ...filteredTreatments.map(t => ({...t, type: 'treatment' as const, sortDate: t.startDate}))
+    ].sort((a, b) => new Date(b.sortDate).getTime() - new Date(a.sortDate).getTime());
 
     const itemsToShow = hasSearch ? allFilteredItems : allFilteredItems.slice(0, 5);
 
@@ -869,15 +962,34 @@ const Dashboard: React.FC<{ visits: Visit[], exams: Exam[], specialists: Special
                 <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center"><ActivityIcon/> {hasSearch ? 'Risultati della Ricerca' : 'Attività Recente'}</h2>
                 <div className="space-y-3">
                     {itemsToShow.length > 0 ? itemsToShow.map(item =>
-                        <ItemCard 
-                            key={`${item.type}-${item.id}`}
-                            item={item} 
-                            type={item.type} 
-                            onEdit={item.type === 'visit' ? onEditVisit : onEditExam} 
-                            onCopy={item.type === 'visit' ? onCopyVisit : onCopyExam} 
-                            onDelete={onDelete}
-                            specialists={specialists} 
-                        />
+                        item.type === 'treatment' ? (
+                            <div key={`treatment-${item.id}`} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:shadow-md transition-shadow group">
+                                <div className="flex items-start gap-4">
+                                    <div className="text-3xl bg-purple-50 p-3 rounded-xl">{specialists.find(s => s.id === item.specialistId)?.icon || '💊'}</div>
+                                    <div>
+                                        <h3 className="font-bold text-gray-900 text-lg">Cura: {item.name}</h3>
+                                        <p className="text-sm text-gray-600 font-medium">
+                                            {specialists.find(s => s.id === item.specialistId)?.name || 'Sconosciuto'} • {new Date(item.startDate).toLocaleDateString()}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity w-full sm:w-auto justify-end">
+                                    <button onClick={() => onCopyTreatment(item as unknown as Treatment)} title="Duplica" className="text-blue-500 hover:text-blue-700 p-2 rounded-full hover:bg-blue-50 transition-colors"><CopyIcon /></button>
+                                    <button onClick={() => onEditTreatment(item as unknown as Treatment)} title="Modifica" className="text-yellow-500 hover:text-yellow-700 p-2 rounded-full hover:bg-yellow-50 transition-colors"><PencilIcon /></button>
+                                    <button onClick={() => onDelete(item.id, 'treatment')} title="Elimina" className="text-red-500 hover:text-red-700 p-2 rounded-full hover:bg-red-50 transition-colors"><TrashIcon /></button>
+                                </div>
+                            </div>
+                        ) : (
+                            <ItemCard 
+                                key={`${item.type}-${item.id}`}
+                                item={item as any} 
+                                type={item.type as 'visit' | 'exam'} 
+                                onEdit={item.type === 'visit' ? onEditVisit : onEditExam} 
+                                onCopy={item.type === 'visit' ? onCopyVisit : onCopyExam} 
+                                onDelete={onDelete}
+                                specialists={specialists} 
+                            />
+                        )
                     ) : <p className="text-gray-500 text-center py-4">{hasSearch ? 'Nessun risultato per la tua ricerca.' : 'Nessuna attività registrata.'}</p>}
                 </div>
             </div>
@@ -1131,6 +1243,64 @@ const ExamForm: React.FC<{form: Omit<Exam, 'id'>, setForm: React.Dispatch<React.
     </div>
 );
 
+const TreatmentForm: React.FC<{form: Omit<Treatment, 'id'>, setForm: React.Dispatch<React.SetStateAction<Omit<Treatment, 'id'>>>, onSave: () => void, specialists: Specialist[]}> = ({ form, setForm, onSave, specialists }) => (
+    <div className="space-y-4">
+        <select value={form.specialistId} onChange={e => setForm({...form, specialistId: Number(e.target.value)})} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-accent focus:border-accent">
+            <option value="">Seleziona Specialista *</option>
+            {specialists.map(s => <option key={s.id} value={s.id}>{s.icon} {s.name}</option>)}
+        </select>
+        <input type="text" placeholder="Nome della cura *" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-accent focus:border-accent" />
+        <textarea placeholder="Farmaci (es. Aspirina 100mg, 1 volta al giorno)" value={form.medications} onChange={e => setForm({...form, medications: e.target.value})} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-accent focus:border-accent" />
+        <div className="flex gap-4">
+            <div className="flex-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data inizio *</label>
+                <input type="date" value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-accent focus:border-accent" />
+            </div>
+            <div className="flex-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data fine</label>
+                <input type="date" value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-accent focus:border-accent" />
+            </div>
+        </div>
+        <textarea placeholder="Note aggiuntive" value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-accent focus:border-accent" />
+        <button onClick={onSave} className="w-full bg-accent text-white py-3 rounded-lg font-semibold shadow hover:bg-purple-700 transition-all">Salva Cura</button>
+    </div>
+);
+
+const TreatmentList: React.FC<{items: Treatment[], onEdit: (item: Treatment) => void, onCopy: (item: Treatment) => void, specialists: Specialist[], onDelete: (id: number) => void}> = ({ items, onEdit, onCopy, specialists, onDelete }) => (
+    <div className="space-y-4">
+        {items.length === 0 ? (
+            <div className="text-center py-12 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                <p className="text-gray-500 font-medium">Nessuna cura registrata.</p>
+            </div>
+        ) : (
+            items.map(item => {
+                const spec = specialists.find(s => s.id === item.specialistId);
+                return (
+                    <div key={item.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:shadow-md transition-shadow group">
+                        <div className="flex items-start gap-4">
+                            <div className="text-3xl bg-purple-50 p-3 rounded-xl">{spec?.icon || '💊'}</div>
+                            <div>
+                                <h3 className="font-bold text-gray-900 text-lg">{item.name}</h3>
+                                <p className="text-sm text-gray-600 font-medium">
+                                    {spec?.name || 'Sconosciuto'} • {new Date(item.startDate).toLocaleDateString()}
+                                    {item.endDate ? ` - ${new Date(item.endDate).toLocaleDateString()}` : ' - In corso'}
+                                </p>
+                                {item.medications && <p className="text-sm text-gray-500 mt-1"><strong>Farmaci:</strong> {item.medications}</p>}
+                                {item.notes && <p className="text-sm text-gray-500 mt-1 italic">{item.notes}</p>}
+                            </div>
+                        </div>
+                        <div className="flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity w-full sm:w-auto justify-end">
+                            <button onClick={() => onCopy(item)} title="Duplica" className="text-blue-500 hover:text-blue-700 p-2 rounded-full hover:bg-blue-50 transition-colors"><CopyIcon /></button>
+                            <button onClick={() => onEdit(item)} title="Modifica" className="text-yellow-500 hover:text-yellow-700 p-2 rounded-full hover:bg-yellow-50 transition-colors"><PencilIcon /></button>
+                            <button onClick={() => onDelete(item.id)} title="Elimina" className="text-red-500 hover:text-red-700 p-2 rounded-full hover:bg-red-50 transition-colors"><TrashIcon /></button>
+                        </div>
+                    </div>
+                );
+            })
+        )}
+    </div>
+);
+
 const MEDICAL_ICONS = ['👁️','🦷','🦴','❤️','🩺','♀️','♂️','👨‍⚕️','👩‍⚕️','🧠','👃','👂','👶','🏃','🩸','💊','🚑','🔬','🧬','🥼','🏥'];
 
 const IconPicker: React.FC<{onSelect: (icon: string) => void}> = ({ onSelect }) => {
@@ -1185,14 +1355,16 @@ const PdfExportModal: React.FC<{
     visits: Visit[];
     exams: Exam[];
     specialists: Specialist[];
+    treatments: Treatment[];
     reportRef: React.RefObject<HTMLDivElement>;
-}> = ({ onGenerate, visits, exams, specialists, reportRef }) => {
+}> = ({ onGenerate, visits, exams, specialists, treatments, reportRef }) => {
     const [filters, setFilters] = useState({
         startDate: '',
         endDate: new Date().toISOString().split('T')[0],
         includeVisits: true,
         includeExams: true,
         includeSpecialists: true,
+        includeTreatments: true,
     });
 
     const specialistMap = useMemo(() => specialists.reduce((acc, s) => {
@@ -1209,6 +1381,11 @@ const PdfExportModal: React.FC<{
         (!filters.startDate || e.date >= filters.startDate) &&
         (!filters.endDate || e.date <= filters.endDate)
     ), [exams, filters.startDate, filters.endDate]);
+
+    const filteredTreatments = useMemo(() => treatments.filter(t =>
+        (!filters.startDate || t.startDate >= filters.startDate) &&
+        (!filters.endDate || t.startDate <= filters.endDate)
+    ), [treatments, filters.startDate, filters.endDate]);
 
     const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value, type, checked } = e.target;
@@ -1232,6 +1409,7 @@ const PdfExportModal: React.FC<{
                 <div className="flex flex-col sm:flex-row sm:gap-6">
                     <label className="flex items-center gap-2"><input type="checkbox" name="includeVisits" checked={filters.includeVisits} onChange={handleFilterChange} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" /> Visite</label>
                     <label className="flex items-center gap-2"><input type="checkbox" name="includeExams" checked={filters.includeExams} onChange={handleFilterChange} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" /> Esami</label>
+                    <label className="flex items-center gap-2"><input type="checkbox" name="includeTreatments" checked={filters.includeTreatments} onChange={handleFilterChange} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" /> Cure</label>
                     <label className="flex items-center gap-2"><input type="checkbox" name="includeSpecialists" checked={filters.includeSpecialists} onChange={handleFilterChange} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" /> Specialisti</label>
                 </div>
             </div>
@@ -1272,6 +1450,22 @@ const PdfExportModal: React.FC<{
                                  {e.cost > 0 && <p><strong>Costo:</strong> €{e.cost.toFixed(2)}</p>}
                              </div>
                          )) : <p>Nessun esame nel periodo selezionato.</p>}
+                     </div>
+                 )}
+
+                 {filters.includeTreatments && (
+                     <div className="mb-8">
+                         <h2 className="text-2xl font-semibold border-b-2 border-gray-200 pb-2 mb-4">Cure</h2>
+                         {filteredTreatments.length > 0 ? filteredTreatments.map(t => (
+                             <div key={t.id} className="mb-4 pb-4 border-b border-gray-100">
+                                 <p><strong>Cura:</strong> {t.name}</p>
+                                 <p><strong>Data Inizio:</strong> {new Date(t.startDate).toLocaleDateString('it-IT')}</p>
+                                 {t.endDate && <p><strong>Data Fine:</strong> {new Date(t.endDate).toLocaleDateString('it-IT')}</p>}
+                                 {t.specialistId && specialistMap[t.specialistId] && <p><strong>Prescritta da:</strong> {specialistMap[t.specialistId].name}</p>}
+                                 <p><strong>Farmaci:</strong> {t.medications}</p>
+                                 {t.notes && <p><strong>Note:</strong> {t.notes}</p>}
+                             </div>
+                         )) : <p>Nessuna cura nel periodo selezionato.</p>}
                      </div>
                  )}
                  
